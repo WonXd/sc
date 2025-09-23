@@ -1,0 +1,114 @@
+-- Airwalk GUI Pasif + Jump Sekali
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local Workspace = game:GetService("Workspace")
+
+-- Variabel Airwalk
+local AirwalkActive = false
+local AirWPart = nil
+local baseY = nil
+
+-- Fungsi Airwalk
+local function AirWalk()
+    if AirWPart then return end
+
+    local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local root = character:WaitForChild("HumanoidRootPart")
+    local humanoid = character:WaitForChild("Humanoid")
+
+    -- Buat part
+    AirWPart = Instance.new("Part", Workspace)
+    AirWPart.Size = Vector3.new(7, 1, 3)
+    AirWPart.Anchored = true
+    AirWPart.Transparency = 1
+    AirWPart.CanCollide = true
+    AirWPart.Name = "Airwalk"
+
+    -- Simpan Y dasar
+    baseY = root.Position.Y - (root.Size.Y/2 + 0.5)
+    AirWPart.Position = Vector3.new(root.Position.X, baseY, root.Position.Z)
+
+    -- Update posisi horizontal setiap frame (XZ)
+    spawn(function()
+        while AirwalkActive do
+            if root and AirWPart then
+                AirWPart.Position = Vector3.new(root.Position.X, AirWPart.Position.Y, root.Position.Z)
+            end
+            wait(0.05)
+        end
+    end)
+
+    -- Jump sekali saat tombol jump ditekan
+    humanoid.StateChanged:Connect(function(old,new)
+        if not AirwalkActive then return end
+        if new == Enum.HumanoidStateType.Jumping then
+            if root and AirWPart then
+                -- Angkat part sekali 2 stud ke atas
+                AirWPart.Position = Vector3.new(AirWPart.Position.X, root.Position.Y - (root.Size.Y/16 + 0), AirWPart.Position.Z)
+            end
+        end
+    end)
+end
+
+-- Fungsi mematikan Airwalk
+local function StopAirWalk()
+    AirwalkActive = false
+    if AirWPart then
+        AirWPart:Destroy()
+        AirWPart = nil
+    end
+end
+
+-- Membuat GUI
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "AirwalkGUI"
+ScreenGui.Parent = PlayerGui
+ScreenGui.ResetOnSpawn = false
+
+local ToggleButton = Instance.new("TextButton", ScreenGui)
+ToggleButton.Size = UDim2.new(0, 100, 0, 50)
+ToggleButton.Position = UDim2.new(0, 20, 0, 20)
+ToggleButton.Text = "Jalan di Udara OFF"
+ToggleButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0) -- merah saat OFF
+
+local CloseButton = Instance.new("TextButton", ScreenGui)
+CloseButton.Size = UDim2.new(0, 50, 0, 50)
+CloseButton.Position = UDim2.new(0, 130, 0, 20)
+CloseButton.Text = "X"
+CloseButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0) -- selalu merah
+
+-- Event tombol ON/OFF
+ToggleButton.MouseButton1Click:Connect(function()
+    if not AirwalkActive then
+        AirwalkActive = true
+        AirWalk()
+        ToggleButton.Text = "Jalan di Udara ON"
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(0, 255, 0) -- hijau saat ON
+        SendNotification("Notification", "Airwalk: ON", 2)
+    else
+        StopAirWalk()
+        ToggleButton.Text = "Jalan di Udara OFF"
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0) -- merah saat OFF
+        SendNotification("Notification", "Airwalk: OFF", 2)
+    end
+end)
+
+-- Event tombol X
+CloseButton.MouseButton1Click:Connect(function()
+    StopAirWalk()
+    ScreenGui:Destroy()
+end)
+
+-- Reset tombol & part saat karakter respawn
+LocalPlayer.CharacterAdded:Connect(function()
+    AirwalkActive = false
+    if AirWPart then
+        AirWPart:Destroy()
+        AirWPart = nil
+    end
+    if ToggleButton then
+        ToggleButton.Text = "Jalan di Udara OFF"
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0) -- merah saat OFF
+    end
+end)

@@ -1,0 +1,400 @@
+-- Silent Halloween Auto Claim - Optimized dengan NPC List
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+local player = Players.LocalPlayer
+local net = ReplicatedStorage:WaitForChild("Packages"):WaitForChild("_Index"):WaitForChild("sleitnick_net@0.2.0"):WaitForChild("net")
+
+-- Variabel global
+local NPCsClaimed = {}
+local isRunning = true
+local claimInterval = 70 * 60 -- 70 menit dalam detik
+
+-- Backup original print function
+local originalPrint = print
+local function silentPrint(...) end
+print = silentPrint
+
+-- List NPC yang sudah terdeteksi dari scan
+local CONFIRMED_NPC_LIST = {
+    "Alex",
+    "Alien Merchant", 
+    "Aura Kid",
+    "Billy Bob",
+    "Boat Expert",
+    "Ghost",
+    "Hallow Guardian",
+    "HalloweenCharacterRig",
+    "Headless Horseman",
+    "Joe",
+    "Pumpkin Bandit",
+    "Ron",
+    "Scared Guide",
+    "Scientist",
+    "Scott",
+    "Seth",
+    "Silly Fisherman",
+    "Temple Guardian",
+    "Witch",
+    "Zombified Doge"
+}
+
+-- NPC khusus untuk TrickOrTreatHouse
+local HOUSE_NPC_LIST = {
+    "Terror", "OutOfOrderFoxy", "Kenny", "Talon", "phrof", "Wildes", "nthnth", "Mac", "RequestingBlox", "Jixxio", "Relukt"
+}
+
+-- Function untuk menentukan jenis event berdasarkan NPC
+local function getEventType(npcName)
+    for _, houseNPC in ipairs(HOUSE_NPC_LIST) do
+        if npcName == houseNPC then
+            return "TrickOrTreatHouse"
+        end
+    end
+    return "TrickOrTreat"
+end
+
+-- Optimized NPC detection dengan fallback ke list yang sudah diketahui
+local function optimizedFindAllNPCs()
+    local foundNPCs = {}
+    
+    -- Method 1: Cari NPC yang ada di workspace berdasarkan list
+    for _, npcName in ipairs(CONFIRMED_NPC_LIST) do
+        local npcModel = Workspace:FindFirstChild(npcName)
+        if npcModel and (npcModel:IsA("Model") or npcModel:FindFirstChild("Humanoid")) then
+            foundNPCs[npcName] = {
+                Name = npcName,
+                Model = npcModel,
+                DisplayName = npcName,
+                EventType = getEventType(npcName),
+                Confirmed = true
+            }
+        else
+            -- Jika tidak ditemukan di workspace, tetap tambahkan sebagai potential NPC
+            foundNPCs[npcName] = {
+                Name = npcName,
+                Model = nil,
+                DisplayName = npcName,
+                EventType = getEventType(npcName),
+                Confirmed = false
+            }
+        end
+    end
+    
+    -- Method 2: Fallback detection untuk NPC yang mungkin terlewat
+    local function quickScanForAdditionalNPCs()
+        local additionalNPCs = {}
+        
+        -- Cari humanoid characters yang bukan player
+        for _, obj in pairs(Workspace:GetDescendants()) do
+            if obj:IsA("Model") and obj:FindFirstChild("Humanoid") then
+                if not Players:GetPlayerFromCharacter(obj) then
+                    local npcName = obj.Name
+                    if not foundNPCs[npcName] and #npcName > 2 then
+                        additionalNPCs[npcName] = {
+                            Name = npcName,
+                            Model = obj,
+                            DisplayName = npcName,
+                            EventType = getEventType(npcName),
+                            Confirmed = false
+                        }
+                    end
+                end
+            end
+        end
+        
+        return additionalNPCs
+    end
+    
+    -- Gabungkan dengan NPC tambahan
+    local additionalNPCs = quickScanForAdditionalNPCs()
+    for npcName, npcData in pairs(additionalNPCs) do
+        if not foundNPCs[npcName] then
+            foundNPCs[npcName] = npcData
+        end
+    end
+    
+    -- Convert ke array
+    local npcArray = {}
+    for _, npcData in pairs(foundNPCs) do
+        table.insert(npcArray, npcData)
+    end
+    
+    -- Sort by name
+    table.sort(npcArray, function(a, b)
+        return a.Name < b.Name
+    end)
+    
+    return npcArray
+end
+
+-- Function untuk claim candy dari NPC
+local function claimCandyFromNPC(npcData)
+    local npcName = npcData.Name
+    local eventType = npcData.EventType
+    
+    if NPCsClaimed[npcName] then
+        return false
+    end
+    
+    local args = {
+        npcName,
+        eventType
+    }
+    
+    local success = pcall(function()
+        net:WaitForChild("RF/SpecialDialogueEvent"):InvokeServer(unpack(args))
+        return true
+    end)
+    
+    if success then
+        NPCsClaimed[npcName] = {
+            EventType = eventType,
+            Timestamp = tick(),
+            Success = true
+        }
+        return true
+    else
+        -- Fallback: coba event type yang lain
+        local alternateEventType = (eventType == "TrickOrTreat") and "TrickOrTreatHouse" or "TrickOrTreat"
+        local alternateArgs = {
+            npcName,
+            alternateEventType
+        }
+        
+        local alternateSuccess = pcall(function()
+            net:WaitForChild("RF/SpecialDialogueEvent"):InvokeServer(unpack(alternateArgs))
+            return true
+        end)
+        
+        if alternateSuccess then
+            NPCsClaimed[npcName] = {
+                EventType = alternateEventType,
+                Timestamp = tick(),
+                Success = true,
+                UsedFallback = true
+            }
+            return true
+        end
+    end
+    
+    NPCsClaimed[npcName] = {
+        Success = false,
+        Timestamp = tick()
+    }
+    return false
+end
+
+-- Silent auto claim dengan optimized detection
+local function autoClaimAllNPCs()
+    local allNPCs = optimizedFindAllNPCs()
+    local totalClaimed = 0
+    local confirmedNPCs = 0
+    local additionalNPCs = 0
+    
+    for _, npcData in ipairs(allNPCs) do
+        if npcData.Confirmed then
+            confirmedNPCs = confirmedNPCs + 1
+        else
+            additionalNPCs = additionalNPCs + 1
+        end
+    end
+    
+    for _, npcData in ipairs(allNPCs) do
+        if not isRunning then break end
+        
+        -- Random delay yang natural
+        wait(math.random(2, 4))
+        
+        local success = claimCandyFromNPC(npcData)
+        if success then
+            totalClaimed = totalClaimed + 1
+        end
+    end
+    
+    return totalClaimed, confirmedNPCs, additionalNPCs, #allNPCs
+end
+
+-- Reset status secara diam-diam
+local function resetClaimStatus()
+    NPCsClaimed = {}
+end
+
+-- Minimal GUI tanpa text yang mencurigakan
+local function createStealthGUI()
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "PlayerStats"
+    ScreenGui.Parent = player.PlayerGui
+    
+    local Frame = Instance.new("Frame")
+    Frame.Size = UDim2.new(0, 180, 0, 100)
+    Frame.Position = UDim2.new(1, -190, 0, 10)
+    Frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    Frame.BackgroundTransparency = 0.3
+    Frame.BorderSizePixel = 0
+    Frame.Parent = ScreenGui
+    
+    local StatusDot = Instance.new("Frame")
+    StatusDot.Size = UDim2.new(0, 10, 0, 10)
+    StatusDot.Position = UDim2.new(0, 5, 0, 5)
+    StatusDot.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+    StatusDot.BorderSizePixel = 0
+    StatusDot.Name = "StatusDot"
+    StatusDot.Parent = Frame
+    
+    local TimerText = Instance.new("TextLabel")
+    TimerText.Size = UDim2.new(1, -10, 0, 20)
+    TimerText.Position = UDim2.new(0, 5, 0, 20)
+    TimerText.BackgroundTransparency = 1
+    TimerText.Text = "70:00"
+    TimerText.TextColor3 = Color3.fromRGB(200, 200, 200)
+    TimerText.TextSize = 14
+    TimerText.Font = Enum.Font.SourceSans
+    TimerText.Name = "TimerText"
+    TimerText.Parent = Frame
+    
+    local InfoText = Instance.new("TextLabel")
+    InfoText.Size = UDim2.new(1, -10, 0, 20)
+    InfoText.Position = UDim2.new(0, 5, 0, 40)
+    InfoText.BackgroundTransparency = 1
+    InfoText.Text = "Online"
+    InfoText.TextColor3 = Color3.fromRGB(150, 150, 150)
+    InfoText.TextSize = 12
+    InfoText.Font = Enum.Font.SourceSans
+    InfoText.Name = "InfoText"
+    InfoText.Parent = Frame
+    
+    local NPCsText = Instance.new("TextLabel")
+    NPCsText.Size = UDim2.new(1, -10, 0, 20)
+    NPCsText.Position = UDim2.new(0, 5, 0, 60)
+    NPCsText.BackgroundTransparency = 1
+    NPCsText.Text = "NPCs: 20"
+    NPCsText.TextColor3 = Color3.fromRGB(150, 150, 150)
+    NPCsText.TextSize = 11
+    NPCsText.Font = Enum.Font.SourceSans
+    NPCsText.Name = "NPCsText"
+    NPCsText.Parent = Frame
+    
+    local CycleText = Instance.new("TextLabel")
+    CycleText.Size = UDim2.new(1, -10, 0, 20)
+    CycleText.Position = UDim2.new(0, 5, 0, 80)
+    CycleText.BackgroundTransparency = 1
+    CycleText.Text = "Cycle: 0"
+    CycleText.TextColor3 = Color3.fromRGB(150, 150, 150)
+    CycleText.TextSize = 11
+    CycleText.Font = Enum.Font.SourceSans
+    CycleText.Name = "CycleText"
+    CycleText.Parent = Frame
+    
+    -- Hidden controls
+    local function toggleGUI()
+        Frame.Visible = not Frame.Visible
+    end
+    
+    local function toggleScript()
+        isRunning = not isRunning
+        StatusDot.BackgroundColor3 = isRunning and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
+        InfoText.Text = isRunning and "Online" or "Offline"
+    end
+    
+    -- Hidden click controls
+    Frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            toggleScript()
+        elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+            toggleGUI()
+        end
+    end)
+    
+    return ScreenGui, TimerText, InfoText, StatusDot, NPCsText, CycleText
+end
+
+-- Main loop yang stealth
+local function stealthMain()
+    local gui, timerText, infoText, statusDot, npcsText, cycleText = createStealthGUI()
+    local lastClaimTime = 0
+    local cycleCount = 0
+    
+    -- Update NPC count di GUI
+    npcsText.Text = "NPCs: " .. #CONFIRMED_NPC_LIST
+    
+    -- Simulasi natural join delay
+    wait(math.random(3, 7))
+    
+    while true do
+        if not isRunning then
+            wait(5)
+            continue
+        end
+        
+        local currentTime = tick()
+        local timeSinceLastClaim = currentTime - lastClaimTime
+        
+        if lastClaimTime == 0 or timeSinceLastClaim >= claimInterval then
+            -- Update cycle count
+            if lastClaimTime > 0 then
+                resetClaimStatus()
+                cycleCount = cycleCount + 1
+                cycleText.Text = "Cycle: " .. cycleCount
+            end
+            
+            -- Execute silent claim
+            local claimed, confirmed, additional, total = autoClaimAllNPCs()
+            lastClaimTime = currentTime
+            
+        else
+            -- Update timer dengan format yang clean
+            local remainingTime = claimInterval - timeSinceLastClaim
+            local hours = math.floor(remainingTime / 3600)
+            local minutes = math.floor((remainingTime % 3600) / 60)
+            local seconds = math.floor(remainingTime % 60)
+            
+            if timerText then
+                if hours > 0 then
+                    timerText.Text = string.format("%02d:%02d:%02d", hours, minutes, seconds)
+                else
+                    timerText.Text = string.format("%02d:%02d", minutes, seconds)
+                end
+            end
+            
+            -- Random wait pattern untuk avoid detection
+            wait(math.random(1, 3))
+        end
+    end
+end
+
+-- Auto cleanup ketika player leave
+player.OnTeleport:Connect(function(state)
+    if state == Enum.TeleportState.Started then
+        isRunning = false
+        print = originalPrint
+    end
+end)
+
+-- Protection against auto-disconnect
+local function keepAlive()
+    while true do
+        wait(30)
+        -- Minimal activity to stay connected
+        if isRunning then
+            -- Silent ping
+            pcall(function() end)
+        end
+    end
+end
+
+-- Start dengan randomized delay
+wait(math.random(5, 15))
+
+-- Jalankan main loop dan keepAlive
+coroutine.wrap(keepAlive)()
+local success, err = pcall(function()
+    stealthMain()
+end)
+
+-- Silent cleanup jika ada error
+if not success then
+    isRunning = false
+    print = originalPrint
+end

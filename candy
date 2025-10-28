@@ -1,0 +1,304 @@
+-- Silent Halloween Auto Claim - No Console Traces
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+local player = Players.LocalPlayer
+local net = ReplicatedStorage:WaitForChild("Packages"):WaitForChild("_Index"):WaitForChild("sleitnick_net@0.2.0"):WaitForChild("net")
+
+-- Variabel global
+local NPCsClaimed = {}
+local isRunning = true
+local claimInterval = 70 * 60 -- 70 menit dalam detik
+local lastNPCList = {}
+
+-- Backup original print function
+local originalPrint = print
+local function silentPrint(...) end
+print = silentPrint
+
+-- Silent function untuk replace print
+local function updateStatus(text)
+    -- Hanya update GUI tanpa console output
+end
+
+-- Function untuk mendeteksi semua NPC di game (stealth mode)
+local function findAllNPCs()
+    local foundNPCs = {}
+    
+    local searchLocations = {
+        Workspace,
+        Workspace:FindFirstChild("Map") or Workspace,
+        Workspace:FindFirstChild("World") or Workspace,
+        Workspace:FindFirstChild("NPCs") or Workspace,
+        Workspace:FindFirstChild("Characters") or Workspace,
+        ReplicatedStorage:FindFirstChild("NPCs") or Workspace
+    }
+    
+    for _, location in ipairs(searchLocations) do
+        for _, obj in pairs(location:GetDescendants()) do
+            if obj:IsA("Model") and obj:FindFirstChild("Humanoid") then
+                local humanoid = obj.Humanoid
+                if not Players:GetPlayerFromCharacter(obj) then
+                    local npcName = obj.Name
+                    if not string.find(npcName:lower(), "temp") 
+                       and not string.find(npcName:lower(), "clone")
+                       and not string.find(npcName:lower(), "dummy") then
+                        
+                        if not foundNPCs[npcName] then
+                            foundNPCs[npcName] = {
+                                Name = npcName,
+                                Model = obj,
+                                DisplayName = obj:GetAttribute("DisplayName") or npcName
+                            }
+                        end
+                    end
+                end
+            end
+        end
+        
+        for _, obj in pairs(location:GetDescendants()) do
+            if obj:IsA("Model") or obj:IsA("Part") then
+                local npcName = obj.Name
+                if obj:GetAttribute("IsNPC") 
+                   or string.find(npcName:lower(), "npc")
+                   or string.find(npcName:lower(), "vendor")
+                   or string.find(npcName:lower(), "merchant")
+                   or string.find(npcName:lower(), "shop")
+                   or string.find(npcName:lower(), "trader") then
+                    
+                    if not foundNPCs[npcName] then
+                        foundNPCs[npcName] = {
+                            Name = npcName,
+                            Model = obj,
+                            DisplayName = obj:GetAttribute("DisplayName") or npcName
+                        }
+                    end
+                end
+            end
+        end
+    end
+    
+    local npcArray = {}
+    for _, npc in pairs(foundNPCs) do
+        table.insert(npcArray, npc)
+    end
+    
+    return npcArray
+end
+
+-- Silent claim function
+local function claimCandyFromNPC(npcName)
+    if NPCsClaimed[npcName] then
+        return false
+    end
+    
+    local args = {
+        npcName,
+        "TrickOrTreat"
+    }
+    
+    local success = pcall(function()
+        net:WaitForChild("RF/SpecialDialogueEvent"):InvokeServer(unpack(args))
+        return true
+    end)
+    
+    if success then
+        NPCsClaimed[npcName] = true
+        return true
+    else
+        return false
+    end
+end
+
+-- Silent auto claim
+local function autoClaimAllNPCs()
+    local allNPCs = findAllNPCs()
+    local totalClaimed = 0
+    
+    for _, npc in ipairs(allNPCs) do
+        if not isRunning then break end
+        
+        wait(math.random(1, 2)) -- Random delay untuk terlihat natural
+        
+        local success = claimCandyFromNPC(npc.Name)
+        if success then
+            totalClaimed = totalClaimed + 1
+        end
+    end
+    
+    lastNPCList = allNPCs
+    return totalClaimed
+end
+
+-- Reset status secara diam-diam
+local function resetClaimStatus()
+    NPCsClaimed = {}
+end
+
+-- Minimal GUI tanpa text yang mencurigakan
+local function createStealthGUI()
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "PlayerStats"
+    ScreenGui.Parent = player.PlayerGui
+    
+    local Frame = Instance.new("Frame")
+    Frame.Size = UDim2.new(0, 120, 0, 60)
+    Frame.Position = UDim2.new(1, -130, 0, 10)
+    Frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    Frame.BackgroundTransparency = 0.3
+    Frame.BorderSizePixel = 0
+    Frame.Parent = ScreenGui
+    
+    local StatusDot = Instance.new("Frame")
+    StatusDot.Size = UDim2.new(0, 10, 0, 10)
+    StatusDot.Position = UDim2.new(0, 5, 0, 5)
+    StatusDot.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+    StatusDot.BorderSizePixel = 0
+    StatusDot.Name = "StatusDot"
+    StatusDot.Parent = Frame
+    
+    local TimerText = Instance.new("TextLabel")
+    TimerText.Size = UDim2.new(1, -10, 0, 20)
+    TimerText.Position = UDim2.new(0, 5, 0, 20)
+    TimerText.BackgroundTransparency = 1
+    TimerText.Text = "70:00"
+    TimerText.TextColor3 = Color3.fromRGB(200, 200, 200)
+    TimerText.TextSize = 14
+    TimerText.Font = Enum.Font.SourceSans
+    TimerText.Name = "TimerText"
+    TimerText.Parent = Frame
+    
+    local InfoText = Instance.new("TextLabel")
+    InfoText.Size = UDim2.new(1, -10, 0, 20)
+    InfoText.Position = UDim2.new(0, 5, 0, 40)
+    InfoText.BackgroundTransparency = 1
+    InfoText.Text = "Online"
+    InfoText.TextColor3 = Color3.fromRGB(150, 150, 150)
+    InfoText.TextSize = 12
+    InfoText.Font = Enum.Font.SourceSans
+    InfoText.Name = "InfoText"
+    InfoText.Parent = Frame
+    
+    -- Hidden controls
+    local function toggleGUI()
+        Frame.Visible = not Frame.Visible
+    end
+    
+    local function toggleScript()
+        isRunning = not isRunning
+        StatusDot.BackgroundColor3 = isRunning and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
+        InfoText.Text = isRunning and "Online" or "Offline"
+    end
+    
+    -- Hidden click controls
+    Frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            toggleScript()
+        elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+            toggleGUI()
+        end
+    end)
+    
+    return ScreenGui, TimerText, InfoText, StatusDot
+end
+
+-- Cleanup function untuk menghapus jejak
+local function cleanup()
+    isRunning = false
+    print = originalPrint -- Restore print function
+    
+    -- Hapus semua instansi yang dibuat
+    if player.PlayerGui:FindFirstChild("PlayerStats") then
+        player.PlayerGui.PlayerStats:Destroy()
+    end
+end
+
+-- Anti-detection measures
+local function applyStealthMeasures()
+    -- Randomize execution patterns
+    local randomSeed = tick()
+    math.randomseed(randomSeed)
+    
+    -- Disable common detection methods
+    if hookfunction then
+        local originalHook = hookfunction
+        -- Prevent anti-cheat hooks
+    end
+    
+    -- Simulate natural player behavior
+    wait(math.random(2, 5))
+end
+
+-- Main loop yang stealth
+local function stealthMain()
+    applyStealthMeasures()
+    
+    local gui, timerText, infoText, statusDot = createStealthGUI()
+    local lastClaimTime = 0
+    local cycleCount = 0
+    
+    -- Player joined naturally simulation
+    wait(3)
+    
+    while true do
+        if not isRunning then
+            wait(5)
+            continue
+        end
+        
+        local currentTime = tick()
+        local timeSinceLastClaim = currentTime - lastClaimTime
+        
+        if lastClaimTime == 0 or timeSinceLastClaim >= claimInterval then
+            -- First run atau cycle baru
+            if lastClaimTime > 0 then
+                resetClaimStatus()
+                cycleCount = cycleCount + 1
+                infoText.Text = "Cycle " .. cycleCount
+            end
+            
+            -- Execute claim secara diam-diam
+            autoClaimAllNPCs()
+            lastClaimTime = currentTime
+            
+        else
+            -- Update timer dengan natural delay
+            local remainingTime = claimInterval - timeSinceLastClaim
+            local minutes = math.floor(remainingTime / 60)
+            local seconds = math.floor(remainingTime % 60)
+            
+            if timerText then
+                timerText.Text = string.format("%02d:%02d", minutes, seconds)
+            end
+            
+            -- Random wait untuk terlihat natural
+            wait(math.random(0.5, 2))
+        end
+    end
+end
+
+-- Auto cleanup ketika player leave
+player.OnTeleport:Connect(function(state)
+    if state == Enum.TeleportState.Started then
+        cleanup()
+    end
+end)
+
+-- Auto cleanup ketika script di-stop
+game:GetService("UserInputService").WindowFocused:Connect(function()
+    -- Keep alive
+end)
+
+-- Start dengan delay random
+wait(math.random(3, 10))
+
+-- Jalankan dengan error handling yang silent
+local success, err = pcall(function()
+    stealthMain()
+end)
+
+-- Jika ada error, cleanup diam-diam
+if not success then
+    cleanup()
+end

@@ -1,0 +1,375 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+local player = Players.LocalPlayer
+local net = ReplicatedStorage:WaitForChild("Packages"):WaitForChild("_Index"):WaitForChild("sleitnick_net@0.2.0"):WaitForChild("net")
+
+-- Variabel global
+local NPCsClaimed = {}
+local isRunning = true
+local claimInterval = 62 * 60 -- 62 menit dalam detik
+
+-- Backup original print function
+local originalPrint = print
+local function silentPrint(...) end
+print = silentPrint
+
+-- List NPC yang sudah terdeteksi dari scan
+local CONFIRMED_NPC_LIST = {
+    "Alex",
+    "Alien Merchant", 
+    "Aura Kid",
+    "Billy Bob",
+    "Boat Expert",
+    "Ghost",
+    "Hallow Guardian",
+    "HalloweenCharacterRig",
+    "Headless Horseman",
+    "Joe",
+    "Pumpkin Bandit",
+    "Ron",
+    "Scared Guide",
+    "Scientist",
+    "Scott",
+    "Seth",
+    "Silly Fisherman",
+    "Temple Guardian",
+    "Witch",
+    "Zombified Doge"
+}
+
+-- NPC khusus untuk TrickOrTreatHouse
+local HOUSE_NPC_LIST = {
+    "Terror", "OutOfOrderFoxy", "Kenny", "Talon", "phrof", "Wildes", "nthnth", "Mac", "RequestingBlox", "Jixxio", "Relukt"
+}
+
+-- Function untuk claim candy dari NPC
+local function claimCandyFromNPC(npcName)
+    if NPCsClaimed[npcName] then
+        return false
+    end
+    
+    -- Tentukan event type berdasarkan NPC
+    local isHouseNPC = false
+    for _, houseNPC in ipairs(HOUSE_NPC_LIST) do
+        if npcName == houseNPC then
+            isHouseNPC = true
+            break
+        end
+    end
+    
+    local eventType = isHouseNPC and "TrickOrTreatHouse" or "TrickOrTreat"
+    
+    local args = {
+        npcName,
+        eventType
+    }
+    
+    local success = pcall(function()
+        net:WaitForChild("RF/SpecialDialogueEvent"):InvokeServer(unpack(args))
+        return true
+    end)
+    
+    if success then
+        NPCsClaimed[npcName] = {
+            EventType = eventType,
+            Timestamp = tick(),
+            Success = true
+        }
+        return true
+    else
+        -- Fallback: coba event type yang lain jika gagal
+        local alternateEventType = isHouseNPC and "TrickOrTreat" or "TrickOrTreatHouse"
+        local alternateArgs = {
+            npcName,
+            alternateEventType
+        }
+        
+        local alternateSuccess = pcall(function()
+            net:WaitForChild("RF/SpecialDialogueEvent"):InvokeServer(unpack(alternateArgs))
+            return true
+        end)
+        
+        if alternateSuccess then
+            NPCsClaimed[npcName] = {
+                EventType = alternateEventType,
+                Timestamp = tick(),
+                Success = true,
+                UsedFallback = true
+            }
+            return true
+        end
+    end
+    
+    NPCsClaimed[npcName] = {
+        Success = false,
+        Timestamp = tick()
+    }
+    return false
+end
+
+-- Silent auto claim tanpa delay
+local function autoClaimAllNPCs()
+    local totalClaimed = 0
+    
+    -- Claim semua NPC tanpa delay
+    for _, npcName in ipairs(CONFIRMED_NPC_LIST) do
+        if not isRunning then break end
+        
+        local success = claimCandyFromNPC(npcName)
+        if success then
+            totalClaimed = totalClaimed + 1
+        end
+    end
+    
+    -- Claim dari HOUSE_NPC_LIST juga tanpa delay
+    for _, npcName in ipairs(HOUSE_NPC_LIST) do
+        if not isRunning then break end
+        
+        local success = claimCandyFromNPC(npcName)
+        if success then
+            totalClaimed = totalClaimed + 1
+        end
+    end
+    
+    return totalClaimed
+end
+
+-- Reset status secara diam-diam
+local function resetClaimStatus()
+    NPCsClaimed = {}
+end
+
+-- Minimal GUI dengan mode minimize
+local function createStealthGUI()
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "PlayerStats"
+    ScreenGui.Parent = player.PlayerGui
+    
+    local minimized = false
+    
+    -- Frame utama
+    local Frame = Instance.new("Frame")
+    Frame.Size = UDim2.new(0, 180, 0, 100)
+    Frame.Position = UDim2.new(1, -190, 0, 10)
+    Frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    Frame.BackgroundTransparency = 0.3
+    Frame.BorderSizePixel = 0
+    Frame.Parent = ScreenGui
+    
+    -- Frame minimized (hanya timer)
+    local MinimizedFrame = Instance.new("Frame")
+    MinimizedFrame.Size = UDim2.new(0, 80, 0, 30)
+    MinimizedFrame.Position = UDim2.new(1, -90, 0, 10)
+    MinimizedFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    MinimizedFrame.BackgroundTransparency = 0.3
+    MinimizedFrame.BorderSizePixel = 0
+    MinimizedFrame.Visible = false
+    MinimizedFrame.Parent = ScreenGui
+    
+    -- StatusDot untuk frame utama
+    local StatusDot = Instance.new("Frame")
+    StatusDot.Size = UDim2.new(0, 10, 0, 10)
+    StatusDot.Position = UDim2.new(0, 5, 0, 5)
+    StatusDot.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+    StatusDot.BorderSizePixel = 0
+    StatusDot.Name = "StatusDot"
+    StatusDot.Parent = Frame
+    
+    -- StatusDot untuk frame minimized
+    local MinimizedStatusDot = Instance.new("Frame")
+    MinimizedStatusDot.Size = UDim2.new(0, 6, 0, 6)
+    MinimizedStatusDot.Position = UDim2.new(0, 5, 0, 5)
+    MinimizedStatusDot.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+    MinimizedStatusDot.BorderSizePixel = 0
+    MinimizedStatusDot.Parent = MinimizedFrame
+    
+    -- TimerText untuk frame utama
+    local TimerText = Instance.new("TextLabel")
+    TimerText.Size = UDim2.new(1, -10, 0, 20)
+    TimerText.Position = UDim2.new(0, 5, 0, 20)
+    TimerText.BackgroundTransparency = 1
+    TimerText.Text = "62:00"
+    TimerText.TextColor3 = Color3.fromRGB(200, 200, 200)
+    TimerText.TextSize = 14
+    TimerText.Font = Enum.Font.SourceSans
+    TimerText.Name = "TimerText"
+    TimerText.Parent = Frame
+    
+    -- TimerText untuk frame minimized
+    local MinimizedTimerText = Instance.new("TextLabel")
+    MinimizedTimerText.Size = UDim2.new(1, -15, 1, -10)
+    MinimizedTimerText.Position = UDim2.new(0, 15, 0, 5)
+    MinimizedTimerText.BackgroundTransparency = 1
+    MinimizedTimerText.Text = "62:00"
+    MinimizedTimerText.TextColor3 = Color3.fromRGB(200, 200, 200)
+    MinimizedTimerText.TextSize = 12
+    MinimizedTimerText.Font = Enum.Font.SourceSans
+    MinimizedTimerText.Parent = MinimizedFrame
+    
+    -- InfoText untuk frame utama
+    local InfoText = Instance.new("TextLabel")
+    InfoText.Size = UDim2.new(1, -10, 0, 20)
+    InfoText.Position = UDim2.new(0, 5, 0, 40)
+    InfoText.BackgroundTransparency = 1
+    InfoText.Text = "Online"
+    InfoText.TextColor3 = Color3.fromRGB(150, 150, 150)
+    InfoText.TextSize = 12
+    InfoText.Font = Enum.Font.SourceSans
+    InfoText.Name = "InfoText"
+    InfoText.Parent = Frame
+    
+    -- NPCsText untuk frame utama
+    local NPCsText = Instance.new("TextLabel")
+    NPCsText.Size = UDim2.new(1, -10, 0, 20)
+    NPCsText.Position = UDim2.new(0, 5, 0, 60)
+    NPCsText.BackgroundTransparency = 1
+    NPCsText.Text = "NPCs: " .. (#CONFIRMED_NPC_LIST + #HOUSE_NPC_LIST)
+    NPCsText.TextColor3 = Color3.fromRGB(150, 150, 150)
+    NPCsText.TextSize = 11
+    NPCsText.Font = Enum.Font.SourceSans
+    NPCsText.Name = "NPCsText"
+    NPCsText.Parent = Frame
+    
+    -- CycleText untuk frame utama
+    local CycleText = Instance.new("TextLabel")
+    CycleText.Size = UDim2.new(1, -10, 0, 20)
+    CycleText.Position = UDim2.new(0, 5, 0, 80)
+    CycleText.BackgroundTransparency = 1
+    CycleText.Text = "Cycle: 0"
+    CycleText.TextColor3 = Color3.fromRGB(150, 150, 150)
+    CycleText.TextSize = 11
+    CycleText.Font = Enum.Font.SourceSans
+    CycleText.Name = "CycleText"
+    CycleText.Parent = Frame
+    
+    -- Function untuk toggle minimize/maximize
+    local function toggleMinimize()
+        minimized = not minimized
+        Frame.Visible = not minimized
+        MinimizedFrame.Visible = minimized
+    end
+    
+    -- Function untuk toggle script on/off
+    local function toggleScript()
+        isRunning = not isRunning
+        local color = isRunning and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
+        StatusDot.BackgroundColor3 = color
+        MinimizedStatusDot.BackgroundColor3 = color
+        InfoText.Text = isRunning and "Online" or "Offline"
+    end
+    
+    -- Click controls untuk frame utama
+    Frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            toggleScript()
+        elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+            toggleMinimize()
+        end
+    end)
+    
+    -- Click controls untuk frame minimized
+    MinimizedFrame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            toggleScript()
+        elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+            toggleMinimize()
+        end
+    end)
+    
+    return ScreenGui, TimerText, MinimizedTimerText, InfoText, StatusDot, MinimizedStatusDot, NPCsText, CycleText
+end
+
+-- Main loop yang stealth
+local function stealthMain()
+    local gui, timerText, minimizedTimerText, infoText, statusDot, minimizedStatusDot, npcsText, cycleText = createStealthGUI()
+    local lastClaimTime = 0
+    local cycleCount = 0
+    
+    -- Simulasi natural join delay
+    wait(math.random(3, 7))
+    
+    while true do
+        if not isRunning then
+            wait(5)
+            continue
+        end
+        
+        local currentTime = tick()
+        local timeSinceLastClaim = currentTime - lastClaimTime
+        
+        if lastClaimTime == 0 or timeSinceLastClaim >= claimInterval then
+            -- Update cycle count
+            if lastClaimTime > 0 then
+                resetClaimStatus()
+                cycleCount = cycleCount + 1
+                cycleText.Text = "Cycle: " .. cycleCount
+            end
+            
+            -- Execute silent claim (tanpa delay)
+            local claimed = autoClaimAllNPCs()
+            lastClaimTime = currentTime
+            
+        else
+            -- Update timer dengan format yang clean
+            local remainingTime = claimInterval - timeSinceLastClaim
+            local hours = math.floor(remainingTime / 3600)
+            local minutes = math.floor((remainingTime % 3600) / 60)
+            local seconds = math.floor(remainingTime % 60)
+            
+            local timerString
+            if hours > 0 then
+                timerString = string.format("%02d:%02d:%02d", hours, minutes, seconds)
+            else
+                timerString = string.format("%02d:%02d", minutes, seconds)
+            end
+            
+            -- Update kedua timer text
+            if timerText then
+                timerText.Text = timerString
+            end
+            if minimizedTimerText then
+                minimizedTimerText.Text = timerString
+            end
+            
+            -- Random wait pattern untuk avoid detection
+            wait(math.random(1, 3))
+        end
+    end
+end
+
+-- Auto cleanup ketika player leave
+player.OnTeleport:Connect(function(state)
+    if state == Enum.TeleportState.Started then
+        isRunning = false
+        print = originalPrint
+    end
+end)
+
+-- Protection against auto-disconnect
+local function keepAlive()
+    while true do
+        wait(30)
+        -- Minimal activity to stay connected
+        if isRunning then
+            -- Silent ping
+            pcall(function() end)
+        end
+    end
+end
+
+-- Start dengan randomized delay
+wait(math.random(5, 15))
+
+-- Jalankan main loop dan keepAlive
+coroutine.wrap(keepAlive)()
+local success, err = pcall(function()
+    stealthMain()
+end)
+
+-- Silent cleanup jika ada error
+if not success then
+    isRunning = false
+    print = originalPrint
+end
